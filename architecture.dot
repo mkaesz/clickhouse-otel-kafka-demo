@@ -1,0 +1,108 @@
+digraph architecture {
+    rankdir=LR
+    newrank=true
+    bgcolor="#1e1e2e"
+    fontname="Helvetica"
+    fontcolor="#f0f0f0"
+    pad=0.6
+    nodesep=0.5
+    ranksep=1.1
+
+    node [fontname="Helvetica" fontsize=11 fontcolor="#f0f0f0" style="filled,rounded" shape=box margin="0.18,0.12"]
+    edge [fontname="Helvetica" fontsize=9 fontcolor="#aaaacc" color="#aaaacc" arrowsize=0.8]
+
+    // ── Customer Cluster 1 ───────────────────────────────────────────
+    subgraph cluster_cust1 {
+        label="Customer Cluster 1"
+        fontcolor="#9999bb" fontsize=12 style="rounded,dashed"
+        color="#444466" bgcolor="#22223a"
+
+        ch_cust1   [label="ch-customer-1\nClickHouse Server"      fillcolor="#7a4e0055" color="#f5a623" penwidth=2]
+        keeper_c1  [label="ch-keeper-customer-1\nClickHouse Keeper" fillcolor="#7a000055" color="#e05a5a" penwidth=2]
+        loadgen1   [label="loadgen\nload generator"                fillcolor="#44444455" color="#888888" penwidth=1.5]
+    }
+
+    // ── Customer Cluster 2 ───────────────────────────────────────────
+    subgraph cluster_cust2 {
+        label="Customer Cluster 2"
+        fontcolor="#9999bb" fontsize=12 style="rounded,dashed"
+        color="#444466" bgcolor="#22223a"
+
+        ch_cust2   [label="ch-customer-2\nClickHouse Server"      fillcolor="#7a4e0055" color="#f5a623" penwidth=2]
+        keeper_c2  [label="ch-keeper-customer-2\nClickHouse Keeper" fillcolor="#7a000055" color="#e05a5a" penwidth=2]
+        loadgen2   [label="loadgen2\nload generator"               fillcolor="#44444455" color="#888888" penwidth=1.5]
+    }
+
+    // ── OTel Source Collectors ────────────────────────────────────────
+    subgraph cluster_otel_src {
+        label="OTel Source Collectors"
+        fontcolor="#9999bb" fontsize=12 style="rounded,dashed"
+        color="#444466" bgcolor="#1a2a3a"
+
+        otel_c1 [label="otel-collector-customer-1\nOTel Collector Contrib" fillcolor="#00336655" color="#5aa3e0" penwidth=2]
+        otel_c2 [label="otel-collector-customer-2\nOTel Collector Contrib" fillcolor="#00336655" color="#5aa3e0" penwidth=2]
+    }
+
+    // ── Kafka ─────────────────────────────────────────────────────────
+    subgraph cluster_kafka {
+        label="Message Bus"
+        fontcolor="#9999bb" fontsize=12 style="rounded,dashed"
+        color="#444466" bgcolor="#1a3a2a"
+
+        kafka      [label="Kafka\napache/kafka:3.7.0"              fillcolor="#1a4a2a55" color="#7ec8a0" penwidth=2 shape=cylinder]
+        topic_m    [label="topic: clickhouse-metrics"              fillcolor="#0d3a1d55" color="#4a9466" penwidth=1.5 fontsize=10]
+        topic_l    [label="topic: clickhouse-logs"                 fillcolor="#0d3a1d55" color="#4a9466" penwidth=1.5 fontsize=10]
+    }
+
+    // ── Central Platform ──────────────────────────────────────────────
+    subgraph cluster_central {
+        label="Central Platform"
+        fontcolor="#9999bb" fontsize=12 style="rounded,dashed"
+        color="#444466" bgcolor="#22223a"
+
+        otel_sink  [label="otel-collector-central\nOTel Collector Contrib"  fillcolor="#00336655" color="#5aa3e0" penwidth=2]
+        ch_central [label="ch-central\nClickHouse Server\n(OTel schema)"    fillcolor="#7a4e0055" color="#f5a623" penwidth=2]
+        keeper_cc  [label="ch-keeper-central\nClickHouse Keeper"            fillcolor="#7a000055" color="#e05a5a" penwidth=2 group=central_col]
+        grafana    [label="Grafana\ngrafana-oss:latest\nClickHouse datasource" fillcolor="#5a300055" color="#e07c3e" penwidth=2]
+    }
+
+    // ── edges: load generators ────────────────────────────────────────
+    loadgen1  -> ch_cust1  [color="#666666" style=dashed label="queries"]
+    loadgen2  -> ch_cust2  [color="#666666" style=dashed label="queries"]
+
+    // ── edges: keeper ↔ CH ───────────────────────────────────────────
+    ch_cust1   -> keeper_c1  [dir=both color="#e05a5a" label="coordination" fontcolor="#e05a5a"]
+    ch_cust2   -> keeper_c2  [dir=both color="#e05a5a" label="coordination" fontcolor="#e05a5a"]
+    ch_central -> keeper_cc  [dir=both color="#e05a5a" label="coordination" fontcolor="#e05a5a"]
+
+    // ── edges: otel-customer-1 scrapes ───────────────────────────────
+    otel_c1 -> ch_cust1   [color="#5aa3e0" label="Prometheus scrape\n:9363" fontcolor="#5aa3e0"]
+    otel_c1 -> keeper_c1  [color="#5aa3e0" label="Prometheus scrape\n:9363" fontcolor="#5aa3e0"]
+    otel_c1 -> ch_cust1   [color="#5aa3e066" label="sqlquery\ntext_log" fontcolor="#7ab8e0" style=dashed]
+
+    // ── edges: otel-customer-2 scrapes ───────────────────────────────
+    otel_c2 -> ch_cust2   [color="#5aa3e0" label="Prometheus scrape\n:9363" fontcolor="#5aa3e0"]
+    otel_c2 -> keeper_c2  [color="#5aa3e0" label="Prometheus scrape\n:9363" fontcolor="#5aa3e0"]
+    otel_c2 -> ch_cust2   [color="#5aa3e066" label="sqlquery\ntext_log" fontcolor="#7ab8e0" style=dashed]
+
+    // ── edges: otel → kafka ───────────────────────────────────────────
+    otel_c1 -> kafka  [color="#7ec8a0" label="publish\notlp_json" fontcolor="#7ec8a0"]
+    otel_c2 -> kafka  [color="#7ec8a0" label="publish\notlp_json" fontcolor="#7ec8a0"]
+
+    // ── Kafka internal ────────────────────────────────────────────────
+    kafka   -> topic_m [color="#4a9466" arrowhead=none]
+    kafka   -> topic_l [color="#4a9466" arrowhead=none]
+
+    // ── edges: otel-central ──────────────────────────────────────────
+    topic_m  -> otel_sink [color="#7ec8a0" label="consume\notlp_json" fontcolor="#7ec8a0"]
+    topic_l  -> otel_sink [color="#7ec8a0" label="consume\notlp_json" fontcolor="#7ec8a0"]
+
+    otel_sink -> keeper_cc  [color="#5aa3e0" label="Prometheus scrape\n:9363" fontcolor="#5aa3e0" constraint=false]
+    otel_sink -> ch_central [color="#5aa3e0" label="write\nOTel schema" fontcolor="#5aa3e0" penwidth=2]
+
+    // ── edges: grafana ────────────────────────────────────────────────
+    grafana -> ch_central [color="#e07c3e" label="SQL queries\nnative :9000" fontcolor="#e07c3e" penwidth=2]
+
+    // keep ch-central and its keeper in the same rank column
+    { rank=same; ch_central; keeper_cc }
+}

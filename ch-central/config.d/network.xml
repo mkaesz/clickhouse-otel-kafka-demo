@@ -1,0 +1,4 @@
+<clickhouse>
+    <!-- Listen on all interfaces so Grafana and other containers can connect -->
+    <listen_host>::</listen_host>
+</clickhouse>

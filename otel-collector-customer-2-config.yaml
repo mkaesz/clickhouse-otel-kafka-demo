@@ -1,0 +1,89 @@
+# otel-collector-customer-2-config.yaml
+#
+# SOURCE pipelines for ch-customer-2 cluster
+#   metrics/ch-customer-2:        Prometheus scrape ch-customer-2:9363         → kafka: clickhouse-metrics
+#   metrics/ch-keeper-customer-2: Prometheus scrape ch-keeper-customer-2:9363  → kafka: clickhouse-metrics
+#   logs/ch-customer-2:           sqlquery system.text_log (ch-customer-2)     → kafka: clickhouse-logs
+
+receivers:
+
+  prometheus/ch-customer-2:
+    config:
+      scrape_configs:
+        - job_name: ch-customer-2
+          scrape_interval: 15s
+          static_configs:
+            - targets: ["ch-customer-2:9363"]
+
+  prometheus/ch-keeper-customer-2:
+    config:
+      scrape_configs:
+        - job_name: ch-keeper-customer-2
+          scrape_interval: 15s
+          static_configs:
+            - targets: ["ch-keeper-customer-2:9363"]
+
+  sqlquery/logs-ch-customer-2:
+    driver: clickhouse
+    datasource: "clickhouse://default:clickhouse@ch-customer-2:9000/system?dial_timeout=10s"
+    collection_interval: 10s
+    queries:
+      - sql: >
+          SELECT
+            event_time,
+            level,
+            logger_name,
+            message,
+            query_id,
+            thread_id
+          FROM system.text_log
+          WHERE event_time >= now() - INTERVAL 30 SECOND
+          ORDER BY event_time
+          LIMIT 200
+        logs:
+          - body_column: message
+            attribute_columns: [level, logger_name, query_id, thread_id]
+
+processors:
+  batch:
+    timeout: 5s
+    send_batch_size: 512
+
+  transform/logs-ch-customer-2:
+    log_statements:
+      - context: log
+        statements:
+          - set(severity_text, attributes["level"]) where severity_text == ""
+      - context: resource
+        statements:
+          - set(attributes["service.name"], "ch-customer-2")
+
+exporters:
+  kafka/metrics:
+    brokers: ["kafka:9092"]
+    metrics:
+      topic: clickhouse-metrics
+      encoding: otlp_json
+
+  kafka/logs:
+    brokers: ["kafka:9092"]
+    logs:
+      topic: clickhouse-logs
+      encoding: otlp_json
+
+service:
+  pipelines:
+    metrics/ch-customer-2:
+      receivers: [prometheus/ch-customer-2]
+      processors: [batch]
+      exporters: [kafka/metrics]
+
+    metrics/ch-keeper-customer-2:
+      receivers: [prometheus/ch-keeper-customer-2]
+      processors: [batch]
+      exporters: [kafka/metrics]
+
+    logs/ch-customer-2:
+      receivers: [sqlquery/logs-ch-customer-2]
+      processors: [transform/logs-ch-customer-2, batch]
+      exporters: [kafka/logs]

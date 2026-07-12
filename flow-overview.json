@@ -1,0 +1,74 @@
+{
+  "title": "ClickHouse -> Kafka -> ClickHouse flow (POC)",
+  "uid": "ch-kafka-poc-flow",
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Messages received per minute, by stream",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc" },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT toStartOfMinute(ingested_at) AS time, count() AS metrics FROM sink.metrics_raw WHERE ingested_at >= now() - INTERVAL 15 MINUTE GROUP BY time ORDER BY time",
+          "format": "time_series"
+        },
+        {
+          "refId": "B",
+          "rawSql": "SELECT toStartOfMinute(ingested_at) AS time, count() AS traces FROM sink.traces_raw WHERE ingested_at >= now() - INTERVAL 15 MINUTE GROUP BY time ORDER BY time",
+          "format": "time_series"
+        },
+        {
+          "refId": "C",
+          "rawSql": "SELECT toStartOfMinute(ingested_at) AS time, count() AS logs FROM sink.logs_raw WHERE ingested_at >= now() - INTERVAL 15 MINUTE GROUP BY time ORDER BY time",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Latest metrics messages",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc" },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT ingested_at, raw FROM sink.metrics_raw ORDER BY ingested_at DESC LIMIT 20",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Latest trace messages",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc" },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT ingested_at, raw FROM sink.traces_raw ORDER BY ingested_at DESC LIMIT 20",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Latest log messages",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc" },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT ingested_at, raw FROM sink.logs_raw ORDER BY ingested_at DESC LIMIT 20",
+          "format": "table"
+        }
+      ]
+    }
+  ]
+}

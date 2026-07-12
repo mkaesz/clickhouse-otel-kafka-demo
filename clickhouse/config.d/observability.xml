@@ -1,0 +1,41 @@
+<clickhouse>
+
+    <!-- Listen on all interfaces so other containers (Grafana, loadgen, OTel) can connect -->
+    <listen_host>::</listen_host>
+
+    <!-- Prometheus metrics endpoint -->
+    <prometheus>
+        <endpoint>/metrics</endpoint>
+        <port>9363</port>
+        <metrics>true</metrics>
+        <asynchronous_metrics>true</asynchronous_metrics>
+        <events>true</events>
+        <errors>true</errors>
+    </prometheus>
+
+    <!-- Structured server logs, queryable via SQL -->
+    <text_log>
+        <database>system</database>
+        <table>text_log</table>
+        <flush_interval_milliseconds>2000</flush_interval_milliseconds>
+        <engine>ENGINE = MergeTree ORDER BY (event_date, event_time) TTL event_date + INTERVAL 1 DAY DELETE SETTINGS index_granularity = 1024</engine>
+        <level>information</level>
+    </text_log>
+
+    <!-- OpenTelemetry span log -->
+    <opentelemetry_span_log>
+        <database>system</database>
+        <table>opentelemetry_span_log</table>
+        <flush_interval_milliseconds>2000</flush_interval_milliseconds>
+        <engine>ENGINE = MergeTree ORDER BY (finish_date, finish_time_us, trace_id) TTL finish_date + INTERVAL 1 DAY DELETE SETTINGS index_granularity = 1024</engine>
+    </opentelemetry_span_log>
+
+    <!-- Sample 100% of queries into opentelemetry_span_log — POC only,
+         never use 1.0 in production. -->
+    <profiles>
+        <default>
+            <opentelemetry_start_trace_probability>1</opentelemetry_start_trace_probability>
+        </default>
+    </profiles>
+
+</clickhouse>
