@@ -1,119 +1,163 @@
-# ClickHouse OSS -> OTel Collector -> Kafka -> ClickHouse -> Grafana (local POC)
+# ClickHouse OTel Kafka Demo
 
-Everything runs on plain HTTP, no auth beyond a hardcoded demo password, no
-TLS. Local testing only — do not reuse these credentials or this compose
-file anywhere real.
+Multi-tenant observability pipeline: two customer ClickHouse clusters emit
+metrics, logs, and traces via OTel Collector → Kafka → a central ClickHouse
+cluster → Grafana.
 
-## What's in here
+Everything runs on plain HTTP, no TLS. Local testing only — do not reuse
+these credentials anywhere real.
+
+## Architecture
+
+```
+Customer Cluster 1                          Central Platform
+──────────────────                          ────────────────
+ch-keeper-customer-1 ←──── coordination
+ch-customer-1        ──┐
+                       │ Prometheus scrape        ch-keeper-central ←─ coordination
+otel-collector-        │ + sqlquery receiver      ch-central (otel.* schema)
+  customer-1    ───────┤                               ▲
+                       │ publish OTLP-JSON             │ write OTel schema
+                       ▼                          otel-collector-central ◄─── Kafka
+                     Kafka                             │
+                       ▲                               │ Prometheus scrape
+                       │ publish OTLP-JSON             │ (ch-keeper-central)
+otel-collector-        │
+  customer-2    ───────┤                          Grafana
+ch-customer-2        ──┘    (queries otel.* on ch-central)
+ch-keeper-customer-2 ←──── coordination
+
+Customer Cluster 2
+```
+
+## Repository layout
 
 ```
 docker-compose.yml
-otel-collector-config.yaml
-clickhouse/
-  config.d/observability.xml     # Prometheus endpoint, text_log, span log, trace sampling=100%
+
+ch-customer-1/
+  config.d/
+    observability.xml   # Prometheus endpoint, text_log, span log, 100% trace sampling
+    keeper.xml          # ClickHouse Keeper connection
   init-scripts/
-    01-reader-user.sql           # read-only "otel_reader" user for the collector
-    02-sink-schema.sql           # Kafka-engine tables + MVs that re-ingest the 3 topics back into ClickHouse
+    01-reader-user.sql  # otel_reader user for the OTel Collector
+    02-sink-schema.sql  # events table used by the load generator
+
+ch-customer-2/          # identical structure to ch-customer-1
+  config.d/
+    observability.xml
+    keeper.xml
+  init-scripts/
+    01-reader-user.sql
+    02-sink-schema.sql
+
+ch-keeper-customer-1/
+  config.xml
+
+ch-keeper-customer-2/
+  config.xml
+
+ch-central/
+  config.d/
+    network.xml
+    settings.xml
+    keeper.xml
+  init-scripts/
+    01-otel-schema.sql  # full OTel schema (otel.otel_metrics_*, otel.otel_logs)
+
+ch-keeper-central/
+  config.xml
+
+otel-collector-customer-1/
+  config.yaml           # scrapes ch-customer-1 + ch-keeper-customer-1 → Kafka
+
+otel-collector-customer-2/
+  config.yaml           # scrapes ch-customer-2 + ch-keeper-customer-2 → Kafka
+
+otel-collector-central/
+  config.yaml           # Kafka → ch-central; scrapes ch-keeper-central → ch-central
+
 grafana/
-  provisioning/datasources/clickhouse.yaml
-  provisioning/dashboards/dashboards.yaml
-  dashboards/flow-overview.json  # pre-built dashboard, auto-loaded
+  provisioning/
+    datasources/clickhouse.yaml
+    dashboards/dashboards.yaml
+  dashboards/
+    ch-cluster-v2.json
 ```
 
-## How the data flows
+## Ports (host)
 
-```
-ClickHouse (system.metrics / text_log / opentelemetry_span_log)
-        |
-        v
-  OTel Collector  (prometheus + sqlquery receivers)
-        |
-        v
-  Kafka  (clickhouse-metrics / clickhouse-traces / clickhouse-logs topics, OTLP-JSON)
-        |
-        v
-  ClickHouse "sink" database  (Kafka-engine tables -> MVs -> MergeTree, raw JSON captured as-is)
-        |
-        v
-  Grafana  (queries sink.* tables directly)
-```
-
-A `loadgen` container runs trivial queries against ClickHouse every couple
-seconds, purely so there's always something to see moving through the
-pipeline — you don't need to do anything for data to start flowing.
+| Service              | HTTP   | Native | Prometheus | Keeper |
+|----------------------|--------|--------|------------|--------|
+| ch-customer-1        | 8123   | 9000   | 9363       |        |
+| ch-customer-2        | 8126   | 9003   | 9364       |        |
+| ch-central           | 8124   | 9001   |            |        |
+| ch-keeper-customer-1 |        |        | 9365       | 2181   |
+| ch-keeper-customer-2 |        |        | 9366       | 2182   |
+| ch-keeper-central    |        |        | 9367       | 2183   |
+| Kafka                |        | 29092  |            |        |
+| Grafana              | 3000   |        |            |        |
 
 ## Run it
 
-```
+```bash
 docker compose up -d
 ```
 
-First startup takes a minute or two — ClickHouse has to come up and run the
-init scripts, Kafka needs to elect itself as its own controller (KRaft,
-single node), and the collector waits on both via healthchecks.
+First startup takes a couple of minutes — ClickHouse runs init scripts,
+Kafka elects itself as its own KRaft controller, and the collectors wait
+on both via healthchecks.
 
 ## Watch it work
 
 **Grafana** — http://localhost:3000, login `admin` / `admin`. The
-"ClickHouse -> Kafka -> ClickHouse flow (POC)" dashboard loads automatically
-on the home page (or under Dashboards). Give it ~30-60 seconds after
-`docker compose up` before rows appear — that's the round trip: ClickHouse
-write -> collector poll (10s interval) -> Kafka -> sink consumer -> table.
+`ch-cluster-v2` dashboard loads automatically. Allow 30–60 seconds after
+`docker compose up` for the first rows to appear (collector poll interval +
+Kafka round trip).
 
-**Raw Kafka topics**, if you want to see the OTLP-JSON on the wire before it
-gets back into ClickHouse:
+**Collector logs:**
 
+```bash
+docker compose logs -f otel-collector-customer-1
+docker compose logs -f otel-collector-customer-2
+docker compose logs -f otel-collector-central
 ```
+
+**Query the sink directly:**
+
+```bash
+# metrics landing in ch-central
+docker exec -it ch-poc-ch-central clickhouse-client --password clickhouse \
+  --query "SELECT ServiceName, MetricName, count() FROM otel.otel_metrics_gauge GROUP BY ServiceName, MetricName ORDER BY ServiceName, MetricName LIMIT 20"
+
+# logs
+docker exec -it ch-poc-ch-central clickhouse-client --password clickhouse \
+  --query "SELECT ServiceName, count() FROM otel.otel_logs GROUP BY ServiceName"
+```
+
+**Raw Kafka topics:**
+
+```bash
 docker exec -it ch-poc-kafka /opt/kafka/bin/kafka-console-consumer.sh \
   --bootstrap-server localhost:9092 --topic clickhouse-metrics --max-messages 3
-
-docker exec -it ch-poc-kafka /opt/kafka/bin/kafka-console-consumer.sh \
-  --bootstrap-server localhost:9092 --topic clickhouse-traces --max-messages 3
 
 docker exec -it ch-poc-kafka /opt/kafka/bin/kafka-console-consumer.sh \
   --bootstrap-server localhost:9092 --topic clickhouse-logs --max-messages 3
 ```
 
-**Directly in ClickHouse**, source and sink side by side:
-
-```
-docker exec -it ch-poc-clickhouse clickhouse-client --query \
-  "SELECT count() FROM system.opentelemetry_span_log"
-
-docker exec -it ch-poc-clickhouse clickhouse-client --query \
-  "SELECT count() FROM sink.traces_raw"
-```
-
-If the sink count is climbing (even a few seconds behind the source count),
-the whole chain is working.
-
-**Collector logs**, if something's stuck:
-
-```
-docker compose logs -f otel-collector
-```
-
 ## Tear down
 
-```
-docker compose down -v   # -v also drops the clickhouse-data and grafana-data volumes
+```bash
+docker compose down -v   # -v also removes all named volumes
 ```
 
-## Known rough edges (fine for a POC, not for anything beyond it)
+## Known rough edges (POC only)
 
-- `otel_reader`'s password is plaintext in two files (`01-reader-user.sql`
-  and `otel-collector-config.yaml`) and matches by hand — if you change one,
-  change the other.
-- The sink tables store each Kafka message as one raw JSON string
-  (`JSONAsString` format) rather than flattening it into typed columns. This
-  sidesteps needing to hand-write OTLP-JSON parsing SQL for the POC, but it's
-  not how you'd want to query this long-term — for real use you'd parse
-  `raw` with `JSONExtract*` functions or land it in a properly typed schema.
-- `opentelemetry_start_trace_probability = 1` (100% sampling) is set
-  globally via the default profile. Fine for a low-traffic POC; would be
-  extremely expensive on a real workload.
-- No topic partitioning/replication considerations — single Kafka node,
-  single partition per topic (auto-created).
-- If you restart just the `clickhouse` container without `docker compose
-  down -v`, the init scripts won't re-run (they only run once against an
-  empty data directory) — that's expected, not a bug.
+- Passwords are hardcoded in plain text across config files — change one,
+  change them all.
+- `opentelemetry_start_trace_probability = 1` (100% sampling) is set in the
+  default profile — fine for a low-traffic demo, very expensive on real
+  workloads.
+- Single Kafka node, single partition, no replication.
+- Init scripts only run against an empty data directory. If you restart a
+  ClickHouse container without `-v`, they will not re-run — this is expected.
