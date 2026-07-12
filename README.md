@@ -1,8 +1,8 @@
 # ClickHouse OTel Kafka Demo
 
 Multi-tenant observability pipeline: two customer ClickHouse clusters emit
-metrics, logs, and traces via OTel Collector → Kafka → a central ClickHouse
-cluster → Grafana.
+metrics and logs via OTel Collector to Kafka topics and get sent to a central ClickHouse
+cluster. Grafana is used to visualize the data.
 
 Everything runs on plain HTTP, no TLS. Local testing only — do not reuse
 these credentials anywhere real.
@@ -37,7 +37,7 @@ docker-compose.yml
 
 ch-customer-1/
   config.d/
-    observability.xml   # Prometheus endpoint, text_log, span log, 100% trace sampling
+    observability.xml   # Prometheus endpoint, text_log
     keeper.xml          # ClickHouse Keeper connection
   init-scripts/
     01-reader-user.sql  # otel_reader user for the OTel Collector
@@ -51,13 +51,13 @@ ch-customer-2/          # identical structure to ch-customer-1
     01-reader-user.sql
     02-sink-schema.sql
 
-ch-keeper-customer-1/
+ch-keeper-customer-1/   # Keeper for customer cluster 1
   config.xml
 
-ch-keeper-customer-2/
+ch-keeper-customer-2/   # Keeper for customer cluster 2
   config.xml
 
-ch-central/
+ch-central/             # Keeper for central ClickHouse cluster
   config.d/
     network.xml
     settings.xml
@@ -65,19 +65,19 @@ ch-central/
   init-scripts/
     01-otel-schema.sql  # full OTel schema (otel.otel_metrics_*, otel.otel_logs)
 
-ch-keeper-central/
+ch-keeper-central/      # Keeper for central ClickHouse cluster
   config.xml
 
 otel-collector-customer-1/
-  config.yaml           # scrapes ch-customer-1 + ch-keeper-customer-1 → Kafka
+  config.yaml           # scrapes ch-customer-1 + ch-keeper-customer-1 and sends to Kafka
 
 otel-collector-customer-2/
-  config.yaml           # scrapes ch-customer-2 + ch-keeper-customer-2 → Kafka
+  config.yaml           # scrapes ch-customer-2 + ch-keeper-customer-2 and sends to Kafka
 
 otel-collector-central/
-  config.yaml           # Kafka → ch-central; scrapes ch-keeper-central → ch-central
+  config.yaml           # OTEL collector reads Kafka topics and sends to ch-central
 
-grafana/
+grafana/                # Comes with a dashboard and a datasource that connects to the central ClickHouse cluster
   provisioning/
     datasources/clickhouse.yaml
     dashboards/dashboards.yaml
@@ -85,70 +85,56 @@ grafana/
     ch-cluster-v2.json
 ```
 
-## Ports (host)
-
-| Service              | HTTP   | Native | Prometheus | Keeper |
-|----------------------|--------|--------|------------|--------|
-| ch-customer-1        | 8123   | 9000   | 9363       |        |
-| ch-customer-2        | 8126   | 9003   | 9364       |        |
-| ch-central           | 8124   | 9001   |            |        |
-| ch-keeper-customer-1 |        |        | 9365       | 2181   |
-| ch-keeper-customer-2 |        |        | 9366       | 2182   |
-| ch-keeper-central    |        |        | 9367       | 2183   |
-| Kafka                |        | 29092  |            |        |
-| Grafana              | 3000   |        |            |        |
-
 ## Run it
 
 ```bash
-docker compose up -d
+podman compose up -d
 ```
 
 First startup takes a couple of minutes — ClickHouse runs init scripts,
 Kafka elects itself as its own KRaft controller, and the collectors wait
 on both via healthchecks.
 
-## Watch it work
+## Access Grafana
 
-**Grafana** — http://localhost:3000, login `admin` / `admin`. The
-`ch-cluster-v2` dashboard loads automatically. Allow 30–60 seconds after
+**Grafana** — http://localhost:3000, login `admin` / `admin`. Allow 30–60 seconds after
 `docker compose up` for the first rows to appear (collector poll interval +
 Kafka round trip).
 
 **Collector logs:**
 
 ```bash
-docker compose logs -f otel-collector-customer-1
-docker compose logs -f otel-collector-customer-2
-docker compose logs -f otel-collector-central
+podman compose logs -f otel-collector-customer-1
+podman compose logs -f otel-collector-customer-2
+podman compose logs -f otel-collector-central
 ```
 
 **Query the sink directly:**
 
 ```bash
 # metrics landing in ch-central
-docker exec -it ch-poc-ch-central clickhouse-client --password clickhouse \
+podman exec -it ch-poc-ch-central clickhouse-client --password clickhouse \
   --query "SELECT ServiceName, MetricName, count() FROM otel.otel_metrics_gauge GROUP BY ServiceName, MetricName ORDER BY ServiceName, MetricName LIMIT 20"
 
 # logs
-docker exec -it ch-poc-ch-central clickhouse-client --password clickhouse \
+podman exec -it ch-poc-ch-central clickhouse-client --password clickhouse \
   --query "SELECT ServiceName, count() FROM otel.otel_logs GROUP BY ServiceName"
 ```
 
 **Raw Kafka topics:**
 
 ```bash
-docker exec -it ch-poc-kafka /opt/kafka/bin/kafka-console-consumer.sh \
+podman exec -it ch-poc-kafka /opt/kafka/bin/kafka-console-consumer.sh \
   --bootstrap-server localhost:9092 --topic clickhouse-metrics --max-messages 3
 
-docker exec -it ch-poc-kafka /opt/kafka/bin/kafka-console-consumer.sh \
+podman exec -it ch-poc-kafka /opt/kafka/bin/kafka-console-consumer.sh \
   --bootstrap-server localhost:9092 --topic clickhouse-logs --max-messages 3
 ```
 
 ## Tear down
 
 ```bash
-docker compose down -v   # -v also removes all named volumes
+podman compose down -v   # -v also removes all named volumes
 ```
 
 ## Known rough edges (POC only)
