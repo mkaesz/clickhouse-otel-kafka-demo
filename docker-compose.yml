@@ -1,24 +1,11 @@
-# ch-keeper-customer-{1,2}  ←  ch-customer-{1,2}  →  otel-collector-customer-{1,2}  →  Kafka
-# ch-keeper-central         ←  ch-central         →  otel-collector-central (sink + keeper scrape)
-#                                                         ↑ Kafka → ch-central
-#
-# ch-keeper-customer-{1,2}: standalone ClickHouse Keeper for each customer cluster
-# ch-keeper-central:        standalone ClickHouse Keeper for ch-central
-# ch-customer-1/2:          source ClickHouse clusters (monitored), use their respective keeper
-# ch-central:               sink ClickHouse cluster (OTel schema), uses ch-keeper-central
-# otel-collector-customer-1: scrapes ch-customer-1 + ch-keeper-customer-1 → Kafka
-# otel-collector-customer-2: scrapes ch-customer-2 + ch-keeper-customer-2 → Kafka
-# otel-collector-central:    Kafka → ch-central (sink); scrapes ch-keeper-central → ch-central
-# Grafana:                  reads only from ch-central
-
 services:
 
   ch-keeper-customer-1:
     image: clickhouse/clickhouse-keeper:latest
     container_name: ch-poc-ch-keeper-customer-1
     ports:
-      - "2181:9181"   # ZooKeeper-compatible (host access for debugging)
-      - "9365:9363"   # Prometheus metrics
+      - "2181:9181"
+      - "9365:9363"
     volumes:
       - ./ch-keeper-customer-1/config.xml:/etc/clickhouse-keeper/keeper_config.xml:ro
       - ch-keeper-customer-1-data:/var/lib/clickhouse-keeper
@@ -34,8 +21,8 @@ services:
     image: clickhouse/clickhouse-keeper:latest
     container_name: ch-poc-ch-keeper-customer-2
     ports:
-      - "2182:9181"   # ZooKeeper-compatible (host access for debugging)
-      - "9366:9363"   # Prometheus metrics
+      - "2182:9181"
+      - "9366:9363"
     volumes:
       - ./ch-keeper-customer-2/config.xml:/etc/clickhouse-keeper/keeper_config.xml:ro
       - ch-keeper-customer-2-data:/var/lib/clickhouse-keeper
@@ -53,9 +40,9 @@ services:
     environment:
       CLICKHOUSE_PASSWORD: clickhouse
     ports:
-      - "8123:8123"   # HTTP
-      - "9000:9000"   # native
-      - "9363:9363"   # Prometheus metrics
+      - "8123:8123"
+      - "9000:9000"
+      - "9363:9363"
     volumes:
       - ./ch-customer-1/config.d:/etc/clickhouse-server/config.d:ro
       - ./ch-customer-1/init-scripts:/docker-entrypoint-initdb.d:ro
@@ -77,9 +64,9 @@ services:
     environment:
       CLICKHOUSE_PASSWORD: clickhouse
     ports:
-      - "8126:8123"   # HTTP
-      - "9003:9000"   # native
-      - "9364:9363"   # Prometheus metrics
+      - "8126:8123"
+      - "9003:9000"
+      - "9364:9363"
     volumes:
       - ./ch-customer-2/config.d:/etc/clickhouse-server/config.d:ro
       - ./ch-customer-2/init-scripts:/docker-entrypoint-initdb.d:ro
@@ -161,8 +148,8 @@ services:
     image: clickhouse/clickhouse-keeper:latest
     container_name: ch-poc-ch-keeper-central
     ports:
-      - "2183:9181"   # ZooKeeper-compatible (host access for debugging)
-      - "9367:9363"   # Prometheus metrics
+      - "2183:9181"
+      - "9367:9363"
     volumes:
       - ./ch-keeper-central/config.xml:/etc/clickhouse-keeper/keeper_config.xml:ro
       - ch-keeper-central-data:/var/lib/clickhouse-keeper
@@ -180,8 +167,8 @@ services:
     environment:
       CLICKHOUSE_PASSWORD: clickhouse
     ports:
-      - "8124:8123"   # HTTP (different host port)
-      - "9001:9000"   # native (different host port)
+      - "8124:8123"
+      - "9001:9000"
     volumes:
       - ./ch-central/config.d:/etc/clickhouse-server/config.d:ro
       - ./ch-central/init-scripts:/docker-entrypoint-initdb.d:ro
