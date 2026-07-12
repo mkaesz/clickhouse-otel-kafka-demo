@@ -21,7 +21,6 @@ ch-customer-1/
     observability.xml   # Prometheus endpoint, text_log
     keeper.xml          # ClickHouse Keeper connection
   init-scripts/
-    01-reader-user.sql  # otel_reader user for the OTel Collector
     02-sink-schema.sql  # events table used by the load generator
 
 ch-customer-2/          # identical structure to ch-customer-1
@@ -29,7 +28,6 @@ ch-customer-2/          # identical structure to ch-customer-1
     observability.xml
     keeper.xml
   init-scripts/
-    01-reader-user.sql
     02-sink-schema.sql
 
 ch-keeper-customer-1/   # Keeper for customer cluster 1
