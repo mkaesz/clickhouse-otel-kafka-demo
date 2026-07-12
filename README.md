@@ -9,6 +9,8 @@ these credentials anywhere real.
 
 ## Architecture
 
+![Architecture](clickhouse-otel-kafka-demo.jpg)
+
 ```
 Customer Cluster 1                          Central Platform
 ──────────────────                          ────────────────
