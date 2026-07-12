@@ -11,27 +11,6 @@ these credentials anywhere real.
 
 ![Architecture](clickhouse-otel-kafka-demo.jpg)
 
-```
-Customer Cluster 1                          Central Platform
-──────────────────                          ────────────────
-ch-keeper-customer-1 ←──── coordination
-ch-customer-1        ──┐
-                       │ Prometheus scrape        ch-keeper-central ←─ coordination
-otel-collector-        │ + sqlquery receiver      ch-central (otel.* schema)
-  customer-1    ───────┤                               ▲
-                       │ publish OTLP-JSON             │ write OTel schema
-                       ▼                          otel-collector-central ◄─── Kafka
-                     Kafka                             │
-                       ▲                               │ Prometheus scrape
-                       │ publish OTLP-JSON             │ (ch-keeper-central)
-otel-collector-        │
-  customer-2    ───────┤                          Grafana
-ch-customer-2        ──┘    (queries otel.* on ch-central)
-ch-keeper-customer-2 ←──── coordination
-
-Customer Cluster 2
-```
-
 ## Repository layout
 
 ```
