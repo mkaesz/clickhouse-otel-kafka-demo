@@ -53,7 +53,7 @@
       "targets": [{
         "refId": "A", "format": "table",
         "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
-        "rawSql": "SELECT ServiceName, toUInt32(argMax(Value, TimeUnix)) AS active_merges FROM otel.otel_metrics_gauge WHERE MetricName = 'ClickHouseMetrics_BackgroundMergesAndMutationsMerge' AND ServiceName IN ('ch-customer-1', 'ch-customer-2') AND TimeUnix >= now() - INTERVAL 5 MINUTE GROUP BY ServiceName"
+        "rawSql": "SELECT toUInt32(sum(latest)) AS active_merges FROM (SELECT argMax(Value, TimeUnix) AS latest FROM otel.otel_metrics_gauge WHERE MetricName = 'ClickHouseMetrics_BackgroundMergesAndMutationsMerge' AND ServiceName IN ('ch-customer-1', 'ch-customer-2') AND TimeUnix >= now() - INTERVAL 5 MINUTE GROUP BY ServiceName)"
       }],
       "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "none", "orientation": "auto"},
       "fieldConfig": {"defaults": {"unit": "short"}}
@@ -68,7 +68,7 @@
       "targets": [{
         "refId": "A", "format": "table",
         "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
-        "rawSql": "SELECT ServiceName, toUInt32(argMax(Value, TimeUnix)) AS delayed FROM otel.otel_metrics_gauge WHERE MetricName = 'ClickHouseMetrics_DelayedInserts' AND ServiceName IN ('ch-customer-1', 'ch-customer-2') AND TimeUnix >= now() - INTERVAL 5 MINUTE GROUP BY ServiceName"
+        "rawSql": "SELECT toUInt32(sum(latest)) AS delayed FROM (SELECT argMax(Value, TimeUnix) AS latest FROM otel.otel_metrics_gauge WHERE MetricName = 'ClickHouseMetrics_DelayedInserts' AND ServiceName IN ('ch-customer-1', 'ch-customer-2') AND TimeUnix >= now() - INTERVAL 5 MINUTE GROUP BY ServiceName)"
       }],
       "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "orientation": "auto"},
       "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}}
