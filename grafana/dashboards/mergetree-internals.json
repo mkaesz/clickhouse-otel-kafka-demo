@@ -310,6 +310,200 @@
       ],
       "fieldConfig": {"defaults": {"unit": "short", "custom": {"lineWidth": 2}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
       "options": {"tooltip": {"mode": "multi"}}
+    },
+
+    {
+      "id": 19, "type": "row", "title": "Mark Cache",
+      "description": "The mark cache stores the positions of granules (blocks of 8192 rows) on disk. A warm cache avoids disk seeks during queries. Watch the hit ratio drop after a restart and recover as queries run.",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 56}, "collapsed": false
+    },
+
+    {
+      "id": 20, "title": "Mark Cache Hit Ratio",
+      "description": "Hits / (Hits + Misses). Near 1.0 = granule positions served from memory, no disk seeks. Near 0 = cold cache or working set larger than cache. Drops to 0 on server restart.",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 57},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+      "targets": [
+        {
+          "refId": "A", "queryType": "timeseries",
+          "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+          "rawSql": "SELECT t1.time, t1.hits / nullIf(t1.hits + t2.misses, 0) AS customer_1 FROM (SELECT toStartOfMinute(TimeUnix) AS time, greatest(max(Value)-min(Value),0) AS hits FROM otel.otel_metrics_sum WHERE MetricName='ClickHouseProfileEvents_MarkCacheHits' AND ServiceName='ch-customer-1' AND TimeUnix>=$__fromTime AND TimeUnix<=$__toTime GROUP BY time) t1 JOIN (SELECT toStartOfMinute(TimeUnix) AS time, greatest(max(Value)-min(Value),0) AS misses FROM otel.otel_metrics_sum WHERE MetricName='ClickHouseProfileEvents_MarkCacheMisses' AND ServiceName='ch-customer-1' AND TimeUnix>=$__fromTime AND TimeUnix<=$__toTime GROUP BY time) t2 ON t1.time=t2.time ORDER BY t1.time"
+        },
+        {
+          "refId": "B", "queryType": "timeseries",
+          "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+          "rawSql": "SELECT t1.time, t1.hits / nullIf(t1.hits + t2.misses, 0) AS customer_2 FROM (SELECT toStartOfMinute(TimeUnix) AS time, greatest(max(Value)-min(Value),0) AS hits FROM otel.otel_metrics_sum WHERE MetricName='ClickHouseProfileEvents_MarkCacheHits' AND ServiceName='ch-customer-2' AND TimeUnix>=$__fromTime AND TimeUnix<=$__toTime GROUP BY time) t1 JOIN (SELECT toStartOfMinute(TimeUnix) AS time, greatest(max(Value)-min(Value),0) AS misses FROM otel.otel_metrics_sum WHERE MetricName='ClickHouseProfileEvents_MarkCacheMisses' AND ServiceName='ch-customer-2' AND TimeUnix>=$__fromTime AND TimeUnix<=$__toTime GROUP BY time) t2 ON t1.time=t2.time ORDER BY t1.time"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1, "custom": {"lineWidth": 2}}},
+      "options": {"tooltip": {"mode": "multi"}}
+    },
+
+    {
+      "id": 21, "title": "Mark Cache Size (bytes)",
+      "description": "Total memory used by the mark cache. Controlled by mark_cache_size (default 5 GiB). If this is at the limit and hit ratio is low, increase the cache size.",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 65},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+      "targets": [
+        {
+          "refId": "A", "queryType": "timeseries",
+          "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+          "rawSql": "SELECT toStartOfMinute(TimeUnix) AS time, avg(Value) AS customer_1 FROM otel.otel_metrics_gauge WHERE MetricName='ClickHouseAsyncMetrics_MarkCacheBytes' AND ServiceName='ch-customer-1' AND TimeUnix>=$__fromTime AND TimeUnix<=$__toTime GROUP BY time ORDER BY time"
+        },
+        {
+          "refId": "B", "queryType": "timeseries",
+          "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+          "rawSql": "SELECT toStartOfMinute(TimeUnix) AS time, avg(Value) AS customer_2 FROM otel.otel_metrics_gauge WHERE MetricName='ClickHouseAsyncMetrics_MarkCacheBytes' AND ServiceName='ch-customer-2' AND TimeUnix>=$__fromTime AND TimeUnix<=$__toTime GROUP BY time ORDER BY time"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "decbytes", "custom": {"lineWidth": 2}}},
+      "options": {"tooltip": {"mode": "multi"}}
+    },
+
+    {
+      "id": 22, "title": "Mark Cache Files",
+      "description": "Number of mark files currently cached. Each part has one mark file per column. More parts = more mark files = larger cache needed.",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 65},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+      "targets": [
+        {
+          "refId": "A", "queryType": "timeseries",
+          "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+          "rawSql": "SELECT toStartOfMinute(TimeUnix) AS time, avg(Value) AS customer_1 FROM otel.otel_metrics_gauge WHERE MetricName='ClickHouseAsyncMetrics_MarkCacheFiles' AND ServiceName='ch-customer-1' AND TimeUnix>=$__fromTime AND TimeUnix<=$__toTime GROUP BY time ORDER BY time"
+        },
+        {
+          "refId": "B", "queryType": "timeseries",
+          "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+          "rawSql": "SELECT toStartOfMinute(TimeUnix) AS time, avg(Value) AS customer_2 FROM otel.otel_metrics_gauge WHERE MetricName='ClickHouseAsyncMetrics_MarkCacheFiles' AND ServiceName='ch-customer-2' AND TimeUnix>=$__fromTime AND TimeUnix<=$__toTime GROUP BY time ORDER BY time"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "short", "custom": {"lineWidth": 2}}},
+      "options": {"tooltip": {"mode": "multi"}}
+    },
+
+    {
+      "id": 23, "type": "row", "title": "Background Pool & Mutations",
+      "description": "The background merge pool has a fixed number of slots. Mutations (ALTER UPDATE/DELETE) compete with merges for the same pool slots.",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 73}, "collapsed": false
+    },
+
+    {
+      "id": 24, "title": "Background Pool Tasks",
+      "description": "Total tasks currently assigned in the background merge/mutation pool (not just running — includes queued). If this saturates the pool size (default 16), new merges wait.",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 74},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+      "targets": [
+        {
+          "refId": "A", "queryType": "timeseries",
+          "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+          "rawSql": "SELECT toStartOfMinute(TimeUnix) AS time, avg(Value) AS customer_1 FROM otel.otel_metrics_gauge WHERE MetricName='ClickHouseMetrics_BackgroundMergesAndMutationsTasks' AND ServiceName='ch-customer-1' AND TimeUnix>=$__fromTime AND TimeUnix<=$__toTime GROUP BY time ORDER BY time"
+        },
+        {
+          "refId": "B", "queryType": "timeseries",
+          "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+          "rawSql": "SELECT toStartOfMinute(TimeUnix) AS time, avg(Value) AS customer_2 FROM otel.otel_metrics_gauge WHERE MetricName='ClickHouseMetrics_BackgroundMergesAndMutationsTasks' AND ServiceName='ch-customer-2' AND TimeUnix>=$__fromTime AND TimeUnix<=$__toTime GROUP BY time ORDER BY time"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "short", "custom": {"lineWidth": 2}}},
+      "options": {"tooltip": {"mode": "multi"}}
+    },
+
+    {
+      "id": 25, "title": "Active Mutations",
+      "description": "Mutations (ALTER UPDATE / ALTER DELETE) rewrite all affected parts. Each mutation runs as a merge-like operation and blocks normal merges on those parts until complete.",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 74},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+      "targets": [
+        {
+          "refId": "A", "queryType": "timeseries",
+          "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+          "rawSql": "SELECT toStartOfMinute(TimeUnix) AS time, avg(Value) AS customer_1 FROM otel.otel_metrics_gauge WHERE MetricName='ClickHouseMetrics_BackgroundMergesAndMutationsMutation' AND ServiceName='ch-customer-1' AND TimeUnix>=$__fromTime AND TimeUnix<=$__toTime GROUP BY time ORDER BY time"
+        },
+        {
+          "refId": "B", "queryType": "timeseries",
+          "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+          "rawSql": "SELECT toStartOfMinute(TimeUnix) AS time, avg(Value) AS customer_2 FROM otel.otel_metrics_gauge WHERE MetricName='ClickHouseMetrics_BackgroundMergesAndMutationsMutation' AND ServiceName='ch-customer-2' AND TimeUnix>=$__fromTime AND TimeUnix<=$__toTime GROUP BY time ORDER BY time"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "short", "custom": {"lineWidth": 2}}},
+      "options": {"tooltip": {"mode": "multi"}}
+    },
+
+    {
+      "id": 26, "type": "row", "title": "Index & Granule Efficiency",
+      "description": "MergeTree reads data in granules (default 8192 rows each). The primary index skips granules that cannot match the query. These panels show how effectively the index is working.",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 82}, "collapsed": false
+    },
+
+    {
+      "id": 27, "title": "Selected Marks per Minute",
+      "description": "Granules read from disk per minute. Each mark = up to 8192 rows read. Lower is better — means the primary index is skipping more data. High values on small result sets = poor index alignment.",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 83},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+      "targets": [
+        {
+          "refId": "A", "queryType": "timeseries",
+          "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+          "rawSql": "SELECT toStartOfMinute(TimeUnix) AS time, greatest(max(Value)-min(Value),0) AS customer_1 FROM otel.otel_metrics_sum WHERE MetricName='ClickHouseProfileEvents_SelectedMarks' AND ServiceName='ch-customer-1' AND TimeUnix>=$__fromTime AND TimeUnix<=$__toTime GROUP BY time ORDER BY time"
+        },
+        {
+          "refId": "B", "queryType": "timeseries",
+          "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+          "rawSql": "SELECT toStartOfMinute(TimeUnix) AS time, greatest(max(Value)-min(Value),0) AS customer_2 FROM otel.otel_metrics_sum WHERE MetricName='ClickHouseProfileEvents_SelectedMarks' AND ServiceName='ch-customer-2' AND TimeUnix>=$__fromTime AND TimeUnix<=$__toTime GROUP BY time ORDER BY time"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "short", "custom": {"lineWidth": 2}}},
+      "options": {"tooltip": {"mode": "multi"}}
+    },
+
+    {
+      "id": 28, "title": "Selected Ranges per Minute",
+      "description": "Contiguous ranges of granules selected by the primary index. Fewer, larger ranges = better locality. Many small ranges = index is fragmented or query pattern doesn't match ORDER BY.",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 83},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+      "targets": [
+        {
+          "refId": "A", "queryType": "timeseries",
+          "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+          "rawSql": "SELECT toStartOfMinute(TimeUnix) AS time, greatest(max(Value)-min(Value),0) AS customer_1 FROM otel.otel_metrics_sum WHERE MetricName='ClickHouseProfileEvents_SelectedRanges' AND ServiceName='ch-customer-1' AND TimeUnix>=$__fromTime AND TimeUnix<=$__toTime GROUP BY time ORDER BY time"
+        },
+        {
+          "refId": "B", "queryType": "timeseries",
+          "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+          "rawSql": "SELECT toStartOfMinute(TimeUnix) AS time, greatest(max(Value)-min(Value),0) AS customer_2 FROM otel.otel_metrics_sum WHERE MetricName='ClickHouseProfileEvents_SelectedRanges' AND ServiceName='ch-customer-2' AND TimeUnix>=$__fromTime AND TimeUnix<=$__toTime GROUP BY time ORDER BY time"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "short", "custom": {"lineWidth": 2}}},
+      "options": {"tooltip": {"mode": "multi"}}
+    },
+
+    {
+      "id": 29, "title": "Rows Returned per Mark Read",
+      "description": "SelectedRows / (SelectedMarks × 8192). Near 1.0 = every row in every granule was needed (perfect index use). Near 0 = most rows in each granule were discarded after reading (index skipping not effective for this query pattern).",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 91},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+      "targets": [
+        {
+          "refId": "A", "queryType": "timeseries",
+          "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+          "rawSql": "SELECT t1.time, t1.rows / nullIf(t2.marks * 8192, 0) AS customer_1 FROM (SELECT toStartOfMinute(TimeUnix) AS time, greatest(max(Value)-min(Value),0) AS rows FROM otel.otel_metrics_sum WHERE MetricName='ClickHouseProfileEvents_SelectedRows' AND ServiceName='ch-customer-1' AND TimeUnix>=$__fromTime AND TimeUnix<=$__toTime GROUP BY time) t1 JOIN (SELECT toStartOfMinute(TimeUnix) AS time, greatest(max(Value)-min(Value),0) AS marks FROM otel.otel_metrics_sum WHERE MetricName='ClickHouseProfileEvents_SelectedMarks' AND ServiceName='ch-customer-1' AND TimeUnix>=$__fromTime AND TimeUnix<=$__toTime GROUP BY time) t2 ON t1.time=t2.time ORDER BY t1.time"
+        },
+        {
+          "refId": "B", "queryType": "timeseries",
+          "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+          "rawSql": "SELECT t1.time, t1.rows / nullIf(t2.marks * 8192, 0) AS customer_2 FROM (SELECT toStartOfMinute(TimeUnix) AS time, greatest(max(Value)-min(Value),0) AS rows FROM otel.otel_metrics_sum WHERE MetricName='ClickHouseProfileEvents_SelectedRows' AND ServiceName='ch-customer-2' AND TimeUnix>=$__fromTime AND TimeUnix<=$__toTime GROUP BY time) t1 JOIN (SELECT toStartOfMinute(TimeUnix) AS time, greatest(max(Value)-min(Value),0) AS marks FROM otel.otel_metrics_sum WHERE MetricName='ClickHouseProfileEvents_SelectedMarks' AND ServiceName='ch-customer-2' AND TimeUnix>=$__fromTime AND TimeUnix<=$__toTime GROUP BY time) t2 ON t1.time=t2.time ORDER BY t1.time"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1, "custom": {"lineWidth": 2}}},
+      "options": {"tooltip": {"mode": "multi"}}
     }
 
   ]
