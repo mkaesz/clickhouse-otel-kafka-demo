@@ -1,0 +1,316 @@
+{
+  "title": "MergeTree Internals",
+  "uid": "ch-mergetree-v1",
+  "refresh": "10s",
+  "time": {"from": "now-1h", "to": "now"},
+  "schemaVersion": 36,
+  "editable": true,
+  "graphTooltip": 1,
+  "description": "MergeTree storage engine behaviour: part lifecycle, merge activity, and insert pipeline pressure.",
+  "panels": [
+
+    {
+      "id": 1, "type": "row", "title": "Overview",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0}, "collapsed": false
+    },
+
+    {
+      "id": 2, "title": "Total Parts — ch-customer-1",
+      "description": "Total number of active data parts across all MergeTree tables. High part counts slow down queries and eventually trigger insert delays.",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 1},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+      "targets": [{
+        "refId": "A", "format": "table",
+        "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+        "rawSql": "SELECT toUInt32(argMax(Value, TimeUnix)) AS parts FROM otel.otel_metrics_gauge WHERE MetricName = 'ClickHouseAsyncMetrics_TotalPartsOfMergeTreeTables' AND ServiceName = 'ch-customer-1' AND TimeUnix >= now() - INTERVAL 5 MINUTE"
+      }],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "none", "orientation": "auto"},
+      "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 100}, {"color": "red", "value": 300}]}}}
+    },
+
+    {
+      "id": 3, "title": "Total Parts — ch-customer-2",
+      "description": "Total number of active data parts across all MergeTree tables.",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 1},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+      "targets": [{
+        "refId": "A", "format": "table",
+        "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+        "rawSql": "SELECT toUInt32(argMax(Value, TimeUnix)) AS parts FROM otel.otel_metrics_gauge WHERE MetricName = 'ClickHouseAsyncMetrics_TotalPartsOfMergeTreeTables' AND ServiceName = 'ch-customer-2' AND TimeUnix >= now() - INTERVAL 5 MINUTE"
+      }],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "none", "orientation": "auto"},
+      "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 100}, {"color": "red", "value": 300}]}}}
+    },
+
+    {
+      "id": 4, "title": "Active Merges",
+      "description": "Number of merge processes running right now in the background pool. ClickHouse merges small parts into larger ones continuously.",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 1},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+      "targets": [{
+        "refId": "A", "format": "table",
+        "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+        "rawSql": "SELECT ServiceName, toUInt32(argMax(Value, TimeUnix)) AS active_merges FROM otel.otel_metrics_gauge WHERE MetricName = 'ClickHouseMetrics_BackgroundMergesAndMutationsMerge' AND ServiceName IN ('ch-customer-1', 'ch-customer-2') AND TimeUnix >= now() - INTERVAL 5 MINUTE GROUP BY ServiceName"
+      }],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "none", "orientation": "auto"},
+      "fieldConfig": {"defaults": {"unit": "short"}}
+    },
+
+    {
+      "id": 5, "title": "Delayed Inserts",
+      "description": "INSERTs being throttled because the part count is too high. Should always be 0. Non-zero means ClickHouse is struggling to merge fast enough.",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 1},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+      "targets": [{
+        "refId": "A", "format": "table",
+        "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+        "rawSql": "SELECT ServiceName, toUInt32(argMax(Value, TimeUnix)) AS delayed FROM otel.otel_metrics_gauge WHERE MetricName = 'ClickHouseMetrics_DelayedInserts' AND ServiceName IN ('ch-customer-1', 'ch-customer-2') AND TimeUnix >= now() - INTERVAL 5 MINUTE GROUP BY ServiceName"
+      }],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "orientation": "auto"},
+      "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}}
+    },
+
+    {
+      "id": 6, "type": "row", "title": "Part Lifecycle",
+      "description": "Each INSERT creates one or more new parts on disk. ClickHouse merges them in the background. Watching part count rise and fall reveals this cycle.",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 5}, "collapsed": false
+    },
+
+    {
+      "id": 7, "title": "Total Active Parts Over Time",
+      "description": "Watch this rise after bursts of inserts and fall as merges complete. A permanently rising trend means merges cannot keep up.",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 6},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+      "targets": [
+        {
+          "refId": "A", "queryType": "timeseries",
+          "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+          "rawSql": "SELECT toStartOfMinute(TimeUnix) AS time, avg(Value) AS customer_1 FROM otel.otel_metrics_gauge WHERE MetricName = 'ClickHouseAsyncMetrics_TotalPartsOfMergeTreeTables' AND ServiceName = 'ch-customer-1' AND TimeUnix >= $__fromTime AND TimeUnix <= $__toTime GROUP BY time ORDER BY time"
+        },
+        {
+          "refId": "B", "queryType": "timeseries",
+          "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+          "rawSql": "SELECT toStartOfMinute(TimeUnix) AS time, avg(Value) AS customer_2 FROM otel.otel_metrics_gauge WHERE MetricName = 'ClickHouseAsyncMetrics_TotalPartsOfMergeTreeTables' AND ServiceName = 'ch-customer-2' AND TimeUnix >= $__fromTime AND TimeUnix <= $__toTime GROUP BY time ORDER BY time"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "short", "custom": {"lineWidth": 2}}},
+      "options": {"tooltip": {"mode": "multi"}}
+    },
+
+    {
+      "id": 8, "type": "row", "title": "Merge Activity",
+      "description": "Merges are the core background process of MergeTree. ClickHouse reads multiple small parts, sorts and merges them, writes one larger part, then removes the originals.",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 14}, "collapsed": false
+    },
+
+    {
+      "id": 9, "title": "Active Merges Over Time",
+      "description": "Concurrent merges running in the background merge pool. The pool size is controlled by background_pool_size (default 16).",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 15},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+      "targets": [
+        {
+          "refId": "A", "queryType": "timeseries",
+          "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+          "rawSql": "SELECT toStartOfMinute(TimeUnix) AS time, avg(Value) AS customer_1 FROM otel.otel_metrics_gauge WHERE MetricName = 'ClickHouseMetrics_BackgroundMergesAndMutationsMerge' AND ServiceName = 'ch-customer-1' AND TimeUnix >= $__fromTime AND TimeUnix <= $__toTime GROUP BY time ORDER BY time"
+        },
+        {
+          "refId": "B", "queryType": "timeseries",
+          "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+          "rawSql": "SELECT toStartOfMinute(TimeUnix) AS time, avg(Value) AS customer_2 FROM otel.otel_metrics_gauge WHERE MetricName = 'ClickHouseMetrics_BackgroundMergesAndMutationsMerge' AND ServiceName = 'ch-customer-2' AND TimeUnix >= $__fromTime AND TimeUnix <= $__toTime GROUP BY time ORDER BY time"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "short", "custom": {"lineWidth": 2}}},
+      "options": {"tooltip": {"mode": "multi"}}
+    },
+
+    {
+      "id": 10, "title": "Merges Completed per Minute",
+      "description": "Rate of merge operations finishing. Each completed merge reduces the part count. Low merge rate with high part count = a problem.",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 15},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+      "targets": [
+        {
+          "refId": "A", "queryType": "timeseries",
+          "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+          "rawSql": "SELECT toStartOfMinute(TimeUnix) AS time, greatest(max(Value) - min(Value), 0) AS customer_1 FROM otel.otel_metrics_sum WHERE MetricName = 'ClickHouseProfileEvents_Merge' AND ServiceName = 'ch-customer-1' AND TimeUnix >= $__fromTime AND TimeUnix <= $__toTime GROUP BY time ORDER BY time"
+        },
+        {
+          "refId": "B", "queryType": "timeseries",
+          "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+          "rawSql": "SELECT toStartOfMinute(TimeUnix) AS time, greatest(max(Value) - min(Value), 0) AS customer_2 FROM otel.otel_metrics_sum WHERE MetricName = 'ClickHouseProfileEvents_Merge' AND ServiceName = 'ch-customer-2' AND TimeUnix >= $__fromTime AND TimeUnix <= $__toTime GROUP BY time ORDER BY time"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "short", "custom": {"lineWidth": 2}}},
+      "options": {"tooltip": {"mode": "multi"}}
+    },
+
+    {
+      "id": 11, "title": "Rows Merged per Minute",
+      "description": "Volume of rows being processed by merges. Large spikes indicate heavy merge work — expected after bulk inserts.",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 23},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+      "targets": [
+        {
+          "refId": "A", "queryType": "timeseries",
+          "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+          "rawSql": "SELECT toStartOfMinute(TimeUnix) AS time, greatest(max(Value) - min(Value), 0) AS customer_1 FROM otel.otel_metrics_sum WHERE MetricName = 'ClickHouseProfileEvents_MergedRows' AND ServiceName = 'ch-customer-1' AND TimeUnix >= $__fromTime AND TimeUnix <= $__toTime GROUP BY time ORDER BY time"
+        },
+        {
+          "refId": "B", "queryType": "timeseries",
+          "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+          "rawSql": "SELECT toStartOfMinute(TimeUnix) AS time, greatest(max(Value) - min(Value), 0) AS customer_2 FROM otel.otel_metrics_sum WHERE MetricName = 'ClickHouseProfileEvents_MergedRows' AND ServiceName = 'ch-customer-2' AND TimeUnix >= $__fromTime AND TimeUnix <= $__toTime GROUP BY time ORDER BY time"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "short", "custom": {"lineWidth": 2}}},
+      "options": {"tooltip": {"mode": "multi"}}
+    },
+
+    {
+      "id": 12, "title": "Bytes Merged per Minute (uncompressed)",
+      "description": "Uncompressed bytes read and rewritten during merges. This drives I/O load. MergeTree always merges in uncompressed form, then recompresses the output part.",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 23},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+      "targets": [
+        {
+          "refId": "A", "queryType": "timeseries",
+          "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+          "rawSql": "SELECT toStartOfMinute(TimeUnix) AS time, greatest(max(Value) - min(Value), 0) AS customer_1 FROM otel.otel_metrics_sum WHERE MetricName = 'ClickHouseProfileEvents_MergedUncompressedBytes' AND ServiceName = 'ch-customer-1' AND TimeUnix >= $__fromTime AND TimeUnix <= $__toTime GROUP BY time ORDER BY time"
+        },
+        {
+          "refId": "B", "queryType": "timeseries",
+          "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+          "rawSql": "SELECT toStartOfMinute(TimeUnix) AS time, greatest(max(Value) - min(Value), 0) AS customer_2 FROM otel.otel_metrics_sum WHERE MetricName = 'ClickHouseProfileEvents_MergedUncompressedBytes' AND ServiceName = 'ch-customer-2' AND TimeUnix >= $__fromTime AND TimeUnix <= $__toTime GROUP BY time ORDER BY time"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "decbytes", "custom": {"lineWidth": 2}}},
+      "options": {"tooltip": {"mode": "multi"}}
+    },
+
+    {
+      "id": 13, "title": "Average Merge Duration (ms)",
+      "description": "MergeTotalMilliseconds / Merge count = average time per merge. Long merges mean large parts being merged — normal, but watch for sustained high values.",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 31},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+      "targets": [
+        {
+          "refId": "A", "queryType": "timeseries",
+          "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+          "rawSql": "SELECT t1.time, t1.ms / nullIf(t2.cnt, 0) AS customer_1 FROM (SELECT toStartOfMinute(TimeUnix) AS time, greatest(max(Value)-min(Value),0) AS ms FROM otel.otel_metrics_sum WHERE MetricName='ClickHouseProfileEvents_MergeTotalMilliseconds' AND ServiceName='ch-customer-1' AND TimeUnix>=$__fromTime AND TimeUnix<=$__toTime GROUP BY time) t1 JOIN (SELECT toStartOfMinute(TimeUnix) AS time, greatest(max(Value)-min(Value),0) AS cnt FROM otel.otel_metrics_sum WHERE MetricName='ClickHouseProfileEvents_Merge' AND ServiceName='ch-customer-1' AND TimeUnix>=$__fromTime AND TimeUnix<=$__toTime GROUP BY time) t2 ON t1.time=t2.time ORDER BY t1.time"
+        },
+        {
+          "refId": "B", "queryType": "timeseries",
+          "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+          "rawSql": "SELECT t1.time, t1.ms / nullIf(t2.cnt, 0) AS customer_2 FROM (SELECT toStartOfMinute(TimeUnix) AS time, greatest(max(Value)-min(Value),0) AS ms FROM otel.otel_metrics_sum WHERE MetricName='ClickHouseProfileEvents_MergeTotalMilliseconds' AND ServiceName='ch-customer-2' AND TimeUnix>=$__fromTime AND TimeUnix<=$__toTime GROUP BY time) t1 JOIN (SELECT toStartOfMinute(TimeUnix) AS time, greatest(max(Value)-min(Value),0) AS cnt FROM otel.otel_metrics_sum WHERE MetricName='ClickHouseProfileEvents_Merge' AND ServiceName='ch-customer-2' AND TimeUnix>=$__fromTime AND TimeUnix<=$__toTime GROUP BY time) t2 ON t1.time=t2.time ORDER BY t1.time"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "ms", "custom": {"lineWidth": 2}}},
+      "options": {"tooltip": {"mode": "multi"}}
+    },
+
+    {
+      "id": 14, "type": "row", "title": "Insert Pipeline",
+      "description": "Each INSERT in MergeTree creates a new part immediately. Small, frequent inserts = many tiny parts = merge pressure. Batch inserts = fewer parts = healthier.",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 39}, "collapsed": false
+    },
+
+    {
+      "id": 15, "title": "Insert Queries per Minute",
+      "description": "Number of INSERT statements per minute. Many small inserts stress the merge system. Ideal: batch writes so each insert covers 10k–100k rows.",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 40},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+      "targets": [
+        {
+          "refId": "A", "queryType": "timeseries",
+          "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+          "rawSql": "SELECT toStartOfMinute(TimeUnix) AS time, greatest(max(Value)-min(Value),0) AS customer_1 FROM otel.otel_metrics_sum WHERE MetricName='ClickHouseProfileEvents_InsertQuery' AND ServiceName='ch-customer-1' AND TimeUnix>=$__fromTime AND TimeUnix<=$__toTime GROUP BY time ORDER BY time"
+        },
+        {
+          "refId": "B", "queryType": "timeseries",
+          "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+          "rawSql": "SELECT toStartOfMinute(TimeUnix) AS time, greatest(max(Value)-min(Value),0) AS customer_2 FROM otel.otel_metrics_sum WHERE MetricName='ClickHouseProfileEvents_InsertQuery' AND ServiceName='ch-customer-2' AND TimeUnix>=$__fromTime AND TimeUnix<=$__toTime GROUP BY time ORDER BY time"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "short", "custom": {"lineWidth": 2}}},
+      "options": {"tooltip": {"mode": "multi"}}
+    },
+
+    {
+      "id": 16, "title": "Rows Inserted per Minute",
+      "description": "Total rows written per minute. Cross-reference with Insert Queries: same rows across fewer queries = healthier batching.",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 40},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+      "targets": [
+        {
+          "refId": "A", "queryType": "timeseries",
+          "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+          "rawSql": "SELECT toStartOfMinute(TimeUnix) AS time, greatest(max(Value)-min(Value),0) AS customer_1 FROM otel.otel_metrics_sum WHERE MetricName='ClickHouseProfileEvents_InsertedRows' AND ServiceName='ch-customer-1' AND TimeUnix>=$__fromTime AND TimeUnix<=$__toTime GROUP BY time ORDER BY time"
+        },
+        {
+          "refId": "B", "queryType": "timeseries",
+          "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+          "rawSql": "SELECT toStartOfMinute(TimeUnix) AS time, greatest(max(Value)-min(Value),0) AS customer_2 FROM otel.otel_metrics_sum WHERE MetricName='ClickHouseProfileEvents_InsertedRows' AND ServiceName='ch-customer-2' AND TimeUnix>=$__fromTime AND TimeUnix<=$__toTime GROUP BY time ORDER BY time"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "short", "custom": {"lineWidth": 2}}},
+      "options": {"tooltip": {"mode": "multi"}}
+    },
+
+    {
+      "id": 17, "title": "Delayed Inserts Over Time",
+      "description": "ClickHouse delays (throttles) INSERTs when a table has too many parts (default threshold: 150). This is a self-protection mechanism — inserts will slow down but not fail. Sustained delays = merge throughput is insufficient.",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 48},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+      "targets": [
+        {
+          "refId": "A", "queryType": "timeseries",
+          "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+          "rawSql": "SELECT toStartOfMinute(TimeUnix) AS time, avg(Value) AS customer_1 FROM otel.otel_metrics_gauge WHERE MetricName='ClickHouseMetrics_DelayedInserts' AND ServiceName='ch-customer-1' AND TimeUnix>=$__fromTime AND TimeUnix<=$__toTime GROUP BY time ORDER BY time"
+        },
+        {
+          "refId": "B", "queryType": "timeseries",
+          "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+          "rawSql": "SELECT toStartOfMinute(TimeUnix) AS time, avg(Value) AS customer_2 FROM otel.otel_metrics_gauge WHERE MetricName='ClickHouseMetrics_DelayedInserts' AND ServiceName='ch-customer-2' AND TimeUnix>=$__fromTime AND TimeUnix<=$__toTime GROUP BY time ORDER BY time"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "short", "custom": {"lineWidth": 2}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
+      "options": {"tooltip": {"mode": "multi"}}
+    },
+
+    {
+      "id": 18, "title": "Rejected Inserts per Minute",
+      "description": "INSERTs rejected outright because the part count exceeded the hard limit (default: 300). This causes errors for the client. Should always be 0.",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 48},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+      "targets": [
+        {
+          "refId": "A", "queryType": "timeseries",
+          "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+          "rawSql": "SELECT toStartOfMinute(TimeUnix) AS time, greatest(max(Value)-min(Value),0) AS customer_1 FROM otel.otel_metrics_sum WHERE MetricName='ClickHouseProfileEvents_RejectedInserts' AND ServiceName='ch-customer-1' AND TimeUnix>=$__fromTime AND TimeUnix<=$__toTime GROUP BY time ORDER BY time"
+        },
+        {
+          "refId": "B", "queryType": "timeseries",
+          "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse-poc"},
+          "rawSql": "SELECT toStartOfMinute(TimeUnix) AS time, greatest(max(Value)-min(Value),0) AS customer_2 FROM otel.otel_metrics_sum WHERE MetricName='ClickHouseProfileEvents_RejectedInserts' AND ServiceName='ch-customer-2' AND TimeUnix>=$__fromTime AND TimeUnix<=$__toTime GROUP BY time ORDER BY time"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "short", "custom": {"lineWidth": 2}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
+      "options": {"tooltip": {"mode": "multi"}}
+    }
+
+  ]
+}
